@@ -1,0 +1,116 @@
+name: infra
+
+services:
+
+  traefik:
+    image: traefik:v3.7.13
+    restart: unless-stopped
+
+    ports:
+      - "80:80/tcp"
+      - "443:443/tcp"
+      - "2456:2456/udp"
+      - "2457:2457/udp"
+      - "2458:2458/udp"
+      - "9987:9987/udp"
+      - "30033:30033/tcp"
+
+    command:
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.valheim-2456.address=:2456/udp
+      - --entrypoints.valheim-2457.address=:2457/udp
+      - --entrypoints.valheim-2458.address=:2458/udp
+      - --entrypoints.ts6-voice.address=:9987/udp
+      - --entrypoints.ts6-files.address=:30033
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=proxy
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/usersfile:/etc/traefik/usersfile:ro
+      - traefik_letsencrypt:/letsencrypt
+
+    networks:
+      - proxy
+
+
+  lgtm:
+    image: grafana/otel-lgtm:0.30.0
+    restart: unless-stopped
+
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+      GF_SECURITY_ADMIN_USER: "admin"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD}"
+
+      GF_SERVER_DOMAIN: "${GRAFANA_DOMAIN:?Set GRAFANA_DOMAIN in infra/.env}"
+      GF_SERVER_ROOT_URL: "https://${GRAFANA_DOMAIN:?Set GRAFANA_DOMAIN in infra/.env}"
+
+      PROMETHEUS_EXTRA_ARGS: "--storage.tsdb.retention.time=14d"
+
+    volumes:
+      - lgtm_data:/data
+
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: proxy
+      traefik.http.routers.grafana.rule: "Host(`${GRAFANA_DOMAIN:?Set GRAFANA_DOMAIN in infra/.env}`)"
+      traefik.http.routers.grafana.entrypoints: websecure
+      traefik.http.routers.grafana.tls: "true"
+      traefik.http.routers.grafana.tls.certresolver: letsencrypt
+      traefik.http.routers.grafana.service: grafana
+      traefik.http.services.grafana.loadbalancer.server.port: "3000"
+
+    networks:
+      - proxy
+      - monitoring
+
+
+  alloy:
+    image: grafana/alloy:latest
+    restart: unless-stopped
+    privileged: true
+
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy_data:/var/lib/alloy/data
+
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+
+    networks:
+      - monitoring
+
+
+networks:
+  proxy:
+    external: true
+
+  monitoring:
+    external: true
+
+
+volumes:
+  traefik_letsencrypt:
+  lgtm_data:
+  alloy_data:

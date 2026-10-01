@@ -1,0 +1,39 @@
+{
+  "configVersion": 1,
+  "server": {
+    "address": "ts6:9987",
+    "nickname": "DJ 3",
+    "homeChannel": "#REPLACE_DJ3_CHANNEL_ID",
+    "identityLevel": 10
+  },
+  "prefix": "!",
+  "admins": [
+    "REPLACE_WITH_BOT_ADMIN_UNIQUE_ID"
+  ],
+  "cogs": [
+    "core",
+    "audio"
+  ],
+  "permissions": {
+    "commands": {
+      "summon": {
+        "groups": [
+          -1
+        ]
+      }
+    }
+  },
+  "follow": {
+    "idleReturnSeconds": 120,
+    "aloneLeaveSeconds": 60
+  },
+  "audio": {
+    "ytdlpExtraArgs": [
+      "--proxy",
+      "socks5://xray:10808",
+      "--js-runtimes",
+      "node"
+    ],
+    "stayInChannel": false
+  }
+}

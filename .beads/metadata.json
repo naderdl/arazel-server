@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "arazel",
+  "project_id": "a3c8cf45-8cc7-4dd8-95f7-fd34f79865c8"
+}

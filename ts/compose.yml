@@ -1,0 +1,117 @@
+name: ts
+
+services:
+  ts6:
+    image: teamspeaksystems/teamspeak6-server:6.0.0-beta13.1@sha256:d845f803aecf842c2df034c959c23ff2462357bacafb3807500885c5ec170fa1
+    restart: unless-stopped
+    environment:
+      TSSERVER_LICENSE_ACCEPTED: "${TSSERVER_LICENSE_ACCEPTED:-not-accepted}"
+      TSSERVER_QUERY_HTTP_ENABLED: "1"
+      TSSERVER_QUERY_HTTP_PORT: "10080"
+      TSSERVER_QUERY_HTTP_ALLOW_GUEST: "0"
+      TSSERVER_QUERY_SSH_ALLOW_GUEST: "0"
+    volumes:
+      - ./data/ts6:/var/tsserver
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: proxy
+      traefik.udp.routers.ts6-voice.entrypoints: ts6-voice
+      traefik.udp.routers.ts6-voice.service: ts6-voice
+      traefik.udp.services.ts6-voice.loadbalancer.server.port: "9987"
+      traefik.tcp.routers.ts6-files.rule: "HostSNI(`*`)"
+      traefik.tcp.routers.ts6-files.entrypoints: ts6-files
+      traefik.tcp.routers.ts6-files.service: ts6-files
+      traefik.tcp.services.ts6-files.loadbalancer.server.port: "30033"
+    networks:
+      - proxy
+      - ts-private
+
+  manager-backend:
+    image: clusterzx/ts6-manager:backend@sha256:632cdbb3100496374936192c5575e72e2783d385561820e7baac426e2f8009da
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: file:/app/packages/backend/data/ts6webui.db
+      JWT_SECRET: "${JWT_SECRET:?Set JWT_SECRET in ts/.env}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in ts/.env}"
+      FRONTEND_URL: "https://${TS_MANAGER_DOMAIN:?Set TS_MANAGER_DOMAIN in ts/.env}"
+    volumes:
+      - ./data/manager:/app/packages/backend/data
+    networks:
+      ts-private:
+        aliases:
+          - backend
+
+  manager-frontend:
+    image: clusterzx/ts6-manager:frontend@sha256:4c43304a86a472241e0482179330a307a10119d781fda0204c848d37861d6197
+    restart: unless-stopped
+    depends_on:
+      - manager-backend
+    labels:
+      traefik.enable: "${TS_MANAGER_PUBLIC:-false}"
+      traefik.docker.network: proxy
+      traefik.http.routers.ts-manager.rule: "Host(`${TS_MANAGER_DOMAIN:?Set TS_MANAGER_DOMAIN in ts/.env}`)"
+      traefik.http.routers.ts-manager.entrypoints: websecure
+      traefik.http.routers.ts-manager.tls: "true"
+      traefik.http.routers.ts-manager.tls.certresolver: letsencrypt
+      traefik.http.routers.ts-manager.service: ts-manager
+      traefik.http.services.ts-manager.loadbalancer.server.port: "80"
+    networks:
+      - proxy
+      - ts-private
+
+  roadie-dj1: &roadie
+    image: roadie-local:0.18.0
+    build:
+      context: ./roadie
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      TSBOT_DATA: /data
+    volumes:
+      - type: bind
+        source: ./data/roadie-dj1
+        target: /data
+        bind:
+          create_host_path: false
+    depends_on:
+      - ts6
+      - xray
+    networks:
+      - ts-private
+
+  roadie-dj2:
+    <<: *roadie
+    volumes:
+      - type: bind
+        source: ./data/roadie-dj2
+        target: /data
+        bind:
+          create_host_path: false
+
+  roadie-dj3:
+    <<: *roadie
+    volumes:
+      - type: bind
+        source: ./data/roadie-dj3
+        target: /data
+        bind:
+          create_host_path: false
+
+  xray:
+    image: ghcr.io/xtls/xray-core:26.9.30@sha256:6d30597c3e729b5dc1faac8dbc0138fbbe6d4d787bfb54120ea48f14e2e7b5ca
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./xray/config.json
+        target: /usr/local/etc/xray/config.json
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      - ts-private
+
+networks:
+  proxy:
+    external: true
+  ts-private:
+    driver: bridge

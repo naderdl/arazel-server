@@ -1,0 +1,4 @@
+services:
+  manager-frontend:
+    ports:
+      - "127.0.0.1:13000:80"

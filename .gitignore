@@ -1,0 +1,25 @@
+.env
+.env.*
+!.env.example
+
+# Runtime data and credentials.
+/infra/caddy/
+/infra/traefik/usersfile
+/infra/traefik/letsencrypt/
+/ts/data/
+/ts/xray/config.json
+/valheim/**
+!/valheim/compose.yml
+!/valheim/README.md
+!/valheim/.env.example
+
+# Only the current migration guide is published.
+/docs/*
+!/docs/MIGRATION.md
+
+# Beads local state.
+/.dolt/
+*.db
+/.beads-credential-key
+/.beads/proxieddb/
+*.gate.lock*

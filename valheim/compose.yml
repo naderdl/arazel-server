@@ -1,0 +1,95 @@
+name: valheim
+
+services:
+  valheim:
+    image: mbround18/valheim:3
+    container_name: valheim
+    restart: unless-stopped
+    stop_signal: SIGINT
+    user: "1000:1000"
+
+    environment:
+      # Server
+      PORT: "2456"
+      NAME: "${VALHEIM_NAME:?Set VALHEIM_NAME in valheim/.env}"
+      PASSWORD: "${VALHEIM_PASSWORD}"
+      TZ: "Asia/Tehran"
+      PUBLIC: "1"
+
+      # Crossplay
+      ENABLE_CROSSPLAY: "1"
+
+      # World settings
+      WORLD: "${VALHEIM_WORLD:?Set VALHEIM_WORLD in valheim/.env}"
+      # Keep everything at Normal/default
+      PRESET: "Normal"
+
+      # Only change resource rate to 2x
+      MODIFIERS: "resources=muchmore"
+
+      # BepInEx + server Gale profile; configs are managed in Gale
+      TYPE: "BepInEx"
+      GALE_SYNC_CODE: "${GALE_SYNC_CODE:?Set GALE_SYNC_CODE in valheim/.env}"
+      GALE_SYNC_CONFIGS: "true"
+      MODS_CONTINUE_ON_FAILURE: "false"
+
+      # Automatic game updates; verify mod compatibility after updates
+      UPDATE_ON_STARTUP: "1"
+      AUTO_UPDATE: "1"
+      AUTO_UPDATE_SCHEDULE: "0 1 * * *"
+      AUTO_UPDATE_PAUSE_WITH_PLAYERS: "1"
+
+      # Backups
+      AUTO_BACKUP: "1"
+      AUTO_BACKUP_SCHEDULE: "0 */3 * * *"
+      AUTO_BACKUP_REMOVE_OLD: "1"
+      AUTO_BACKUP_DAYS_TO_LIVE: "7"
+      AUTO_BACKUP_ON_UPDATE: "1"
+      AUTO_BACKUP_ON_SHUTDOWN: "1"
+
+      # Huginn
+      HTTP_PORT: "3000"
+
+    volumes:
+      - ./saves:/home/steam/.config/unity3d/IronGate/Valheim
+      - ./server:/home/steam/valheim
+      - ./backups:/home/steam/backups
+
+    networks:
+      - proxy
+      - monitoring
+
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: proxy
+      traefik.http.routers.valheim-huginn.rule: "Host(`${VALHEIM_DOMAIN:?Set VALHEIM_DOMAIN in valheim/.env}`)"
+      traefik.http.routers.valheim-huginn.entrypoints: websecure
+      traefik.http.routers.valheim-huginn.tls: "true"
+      traefik.http.routers.valheim-huginn.tls.certresolver: letsencrypt
+      traefik.http.routers.valheim-huginn.middlewares: valheim-huginn-auth
+      traefik.http.routers.valheim-huginn.service: valheim-huginn
+      traefik.http.services.valheim-huginn.loadbalancer.server.port: "3000"
+      traefik.http.middlewares.valheim-huginn-auth.basicauth.usersfile: /etc/traefik/usersfile
+      traefik.udp.routers.valheim-2456.entrypoints: valheim-2456
+      traefik.udp.routers.valheim-2456.service: valheim-2456
+      traefik.udp.services.valheim-2456.loadbalancer.server.port: "2456"
+      traefik.udp.routers.valheim-2457.entrypoints: valheim-2457
+      traefik.udp.routers.valheim-2457.service: valheim-2457
+      traefik.udp.services.valheim-2457.loadbalancer.server.port: "2457"
+      traefik.udp.routers.valheim-2458.entrypoints: valheim-2458
+      traefik.udp.routers.valheim-2458.service: valheim-2458
+      traefik.udp.services.valheim-2458.loadbalancer.server.port: "2458"
+      observability.scrape: "true"
+      observability.metrics.port: "3000"
+      observability.metrics.path: "/metrics"
+
+    cpus: 4
+    mem_limit: 6g
+    mem_reservation: 4g
+
+networks:
+  proxy:
+    external: true
+
+  monitoring:
+    external: true
