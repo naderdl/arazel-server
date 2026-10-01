@@ -1,9 +1,9 @@
 {
   "configVersion": 1,
   "server": {
-    "address": "ts6:9987",
+    "address": "ts6.docker:9987",
     "nickname": "DJ 2",
-    "homeChannel": "#REPLACE_DJ2_CHANNEL_ID",
+    "homeChannel": "REPLACE_DJ2_CHANNEL_NAME",
     "identityLevel": 10
   },
   "prefix": "!",

@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh TeamSpeak Xray subscription
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/arazel-server
+EnvironmentFile=/root/arazel-server/ts/.env
+ExecStart=/usr/bin/python3 /root/arazel-server/ts/xray/refresh.py
+StandardOutput=journal
+StandardError=journal

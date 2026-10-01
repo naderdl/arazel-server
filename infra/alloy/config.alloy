@@ -36,6 +36,14 @@ prometheus.scrape "docker" {
 }
 
 
+// TeamSpeak's private Prometheus endpoint
+prometheus.scrape "ts6" {
+  targets         = [{"__address__" = "ts6:9187", "job" = "ts6"}]
+  forward_to      = [prometheus.remote_write.lgtm.receiver]
+  scrape_interval = "15s"
+}
+
+
 // Docker discovery
 
 discovery.docker "containers" {
@@ -82,6 +90,15 @@ discovery.relabel "docker_logs" {
 loki.source.docker "containers" {
   host       = "unix:///var/run/docker.sock"
   targets    = discovery.relabel.docker_logs.output
+  forward_to = [loki.write.lgtm.receiver]
+}
+
+
+// Host Xray refresh service -> Loki
+loki.source.journal "xray_refresh" {
+  path       = "/rootfs/var/log/journal"
+  matches    = "_SYSTEMD_UNIT=xray-refresh.service"
+  labels     = {service_name = "xray-refresh", service_namespace = "host"}
   forward_to = [loki.write.lgtm.receiver]
 }
 

@@ -8,6 +8,9 @@
 /infra/traefik/letsencrypt/
 /ts/data/
 /ts/xray/config.json
+/ts/xray/config.candidate.json
+/ts/xray/config.previous.json
+/ts/xray/.xray-*.json
 /valheim/**
 !/valheim/compose.yml
 !/valheim/README.md
@@ -23,3 +26,4 @@
 /.beads-credential-key
 /.beads/proxieddb/
 *.gate.lock*
+__pycache__/

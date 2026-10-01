@@ -53,6 +53,7 @@ Assert ($server.labels['traefik.enable'] -eq 'true' -and $server.labels['traefik
 Assert ($ts.networks.proxy.external -eq $true -and $ts.networks.proxy.name -eq 'proxy') 'proxy must be external'
 Assert ($ts.networks.ContainsKey('ts-private') -and -not $ts.networks['ts-private'].internal) 'TS private bridge must allow future outbound traffic'
 Assert ($server.networks.ContainsKey('proxy') -and $server.networks.ContainsKey('ts-private')) 'TS6 must join both networks'
+Assert ($server.networks['ts-private'].aliases -contains 'ts6.docker') 'Roadies need a dotted Docker alias to avoid TeamSpeak nickname lookup'
 Assert ($server.volumes.Count -eq 1) 'TS6 must use one persistent bind'
 $volume = $server.volumes[0]
 Assert ($volume.type -eq 'bind' -and $volume.target -eq '/var/tsserver' -and $volume.source.Replace('\', '/').EndsWith('/ts/data/ts6')) 'Wrong TS6 persistent bind'
@@ -62,6 +63,8 @@ Assert ($server.environment.TSSERVER_QUERY_HTTP_ALLOW_GUEST -eq '0') 'Guest WebQ
 Assert ($ts.services.ContainsKey('manager-backend')) 'Missing manager-backend'
 Assert ($server.environment.TSSERVER_QUERY_HTTP_ENABLED -eq '1' -and $server.environment.TSSERVER_QUERY_HTTP_PORT -eq '10080') 'Private HTTP WebQuery must be enabled on 10080'
 Assert ($server.environment.TSSERVER_QUERY_SSH_ALLOW_GUEST -eq '0') 'Guest SSH query must be disabled'
+Assert ($server.environment.TSSERVER_METRICS_ENABLED -eq '1' -and $server.environment.TSSERVER_METRICS_IP -eq '0.0.0.0') 'TS6 metrics must be enabled for private Alloy scraping'
+Assert ($server.networks.ContainsKey('monitoring') -and $ts.networks.monitoring.external -eq $true) 'TS6 metrics must be reachable on the private monitoring network'
 foreach ($name in @('manager-backend', 'manager-frontend')) {
     Assert ($ts.services.ContainsKey($name)) "Missing $name"
     Assert ($ts.services[$name].image -match "^clusterzx/ts6-manager:$($name.Replace('manager-', ''))@sha256:[a-f0-9]{64}$") "Pin $name by digest"
@@ -95,7 +98,8 @@ Assert (-not $xray.labels -or $xray.labels['traefik.enable'] -ne 'true') 'Xray m
 Assert ($ts.networks['ts-private'].driver -eq 'bridge' -and -not $ts.networks['ts-private'].internal) 'Xray bridge must permit outbound traffic'
 Assert ($xray.volumes.Count -eq 1) 'Xray must mount one real config'
 $xrayVolume = $xray.volumes[0]
-Assert ($xrayVolume.type -eq 'bind' -and $xrayVolume.source.Replace('\', '/').EndsWith('/ts/xray/config.json') -and $xrayVolume.target -eq '/usr/local/etc/xray/config.json' -and $xrayVolume.read_only -eq $true -and $xrayVolume.bind.create_host_path -eq $false) 'Xray config must be a read-only bind that fails when absent'
+Assert ($xrayVolume.type -eq 'bind' -and $xrayVolume.source.Replace('\', '/').EndsWith('/ts/xray') -and $xrayVolume.target -eq '/usr/local/etc/xray' -and $xrayVolume.read_only -eq $true -and $xrayVolume.bind.create_host_path -eq $false) 'Xray config directory must be a read-only bind'
+Assert (($xray.command -join ' ') -eq 'run -config /usr/local/etc/xray/config.json') 'Xray must load only the active config, not the candidate or example'
 $xrayExample = Get-Content (Join-Path $repo 'ts/xray/config.example.json') -Raw | ConvertFrom-Json -AsHashtable
 Assert ($xrayExample.inbounds.Count -eq 1 -and $xrayExample.inbounds[0].protocol -eq 'socks' -and $xrayExample.inbounds[0].listen -eq '0.0.0.0' -and $xrayExample.inbounds[0].port -eq 10808) 'Xray example must listen for bridge SOCKS on 10808'
 Assert ($xrayExample.outbounds.Count -eq 1 -and $xrayExample.outbounds[0].protocol -eq 'blackhole') 'Xray example must fail closed without a direct fallback'
@@ -115,8 +119,8 @@ foreach ($n in 1..3) {
     Assert ($bind.type -eq 'bind' -and $bind.target -eq '/data' -and $bind.source.Replace('\', '/').EndsWith("/ts/data/$name") -and $bind.bind.create_host_path -eq $false) "$name needs separate precreated state"
     $sources += $bind.source
     $config = Get-Content (Join-Path $repo "ts/roadie/$name.example.json") -Raw | ConvertFrom-Json -AsHashtable
-    Assert ($config.configVersion -eq 1 -and $config.server.address -eq 'ts6:9987') "$name must connect to internal ts6"
-    Assert ($config.server.nickname -eq "DJ $n" -and $config.server.homeChannel -eq "#REPLACE_DJ${n}_CHANNEL_ID") "$name needs distinct nickname and home input"
+    Assert ($config.configVersion -eq 1 -and $config.server.address -eq 'ts6.docker:9987') "$name must connect to internal ts6"
+    Assert ($config.server.nickname -eq "DJ $n" -and $config.server.homeChannel -eq "REPLACE_DJ${n}_CHANNEL_NAME") "$name needs distinct nickname and home input"
     Assert ($config.follow.idleReturnSeconds -eq 120 -and $config.audio.stayInChannel -eq $false) "$name must return home after idle"
     Assert (($config.audio.ytdlpExtraArgs -join '|') -eq '--proxy|socks5://xray:10808|--js-runtimes|node') "$name must proxy both yt-dlp stages with Node runtime"
     Assert ($config.admins.Count -eq 1 -and $config.admins[0] -eq 'REPLACE_WITH_BOT_ADMIN_UNIQUE_ID') "$name requires actual admin UID"
@@ -181,7 +185,7 @@ foreach ($mode in @($bootstrap, $production)) {
 }
 Push-Location $repo
 try {
-    foreach ($path in @('ts/data/manager/ts6webui.db', 'ts/data/ts6/example.db', 'ts/data/ts6/files/example', 'ts/.env', 'ts/xray/config.json', 'ts/data/roadie-dj1/identity.json', 'ts/data/roadie-dj2/identity.json', 'ts/data/roadie-dj3/identity.json')) {
+    foreach ($path in @('ts/data/manager/ts6webui.db', 'ts/data/ts6/example.db', 'ts/data/ts6/files/example', 'ts/.env', 'ts/xray/config.json', 'ts/xray/config.candidate.json', 'ts/xray/config.previous.json', 'ts/xray/.xray-orphan.json', 'ts/data/roadie-dj1/identity.json', 'ts/data/roadie-dj2/identity.json', 'ts/data/roadie-dj3/identity.json')) {
         & git check-ignore --quiet $path
         Assert ($LASTEXITCODE -eq 0) "Runtime path must be ignored: $path"
     }

@@ -17,7 +17,7 @@ services:
       PUBLIC: "1"
 
       # Crossplay
-      ENABLE_CROSSPLAY: "1"
+      ENABLE_CROSSPLAY: "0"
 
       # World settings
       WORLD: "${VALHEIM_WORLD:?Set VALHEIM_WORLD in valheim/.env}"

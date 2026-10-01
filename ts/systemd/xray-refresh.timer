@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh TeamSpeak Xray subscription every six hours
+
+[Timer]
+OnCalendar=*-*-* 00/6:00:00
+Persistent=true
+Unit=xray-refresh.service
+
+[Install]
+WantedBy=timers.target

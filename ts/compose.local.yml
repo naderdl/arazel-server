@@ -1,0 +1,6 @@
+# Local TS6 client access. Start Roadies with --no-deps to leave Xray off.
+services:
+  ts6:
+    ports:
+      - "127.0.0.1:9987:9987/udp"
+      - "127.0.0.1:30033:30033/tcp"
