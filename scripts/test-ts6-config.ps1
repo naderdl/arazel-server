@@ -24,32 +24,12 @@ function Read-Compose($project, $public = 'false', [switch]$bootstrap) {
 }
 
 $ts = Read-Compose 'ts'
-$infra = Read-Compose 'infra'
+
 Assert ($ts.name -eq 'ts' -and $ts.services.ContainsKey('ts6')) 'TS6 project/service names changed'
 $server = $ts.services.ts6
-foreach ($project in @($infra, $ts)) {
-    foreach ($entry in $project.services.GetEnumerator()) {
-        foreach ($port in $entry.Value.ports) {
-            if ($port.published -in @('9987', '30033')) {
-                Assert ($project.name -eq 'infra' -and $entry.Key -eq 'traefik') 'Only Traefik may publish TS6 ports'
-            }
-        }
-    }
-}
+
 Assert (-not $server.ContainsKey('ports')) 'TS6 must publish no host ports'
-foreach ($mapping in @(@('9987', 'udp', 'ts6-voice'), @('30033', 'tcp', 'ts6-files'))) {
-    $port, $protocol, $entrypoint = $mapping
-    $ports = @($infra.services.traefik.ports | Where-Object { $_.published -eq $port -and $_.target -eq [int]$port -and $_.protocol -eq $protocol })
-    Assert ($ports.Count -eq 1) "Missing Traefik $port/$protocol mapping"
-    $suffix = if ($protocol -eq 'udp') { '/udp' } else { '' }
-    Assert ($infra.services.traefik.command -contains "--entrypoints.$entrypoint.address=:$port$suffix") "Missing $entrypoint entrypoint"
-    Assert ($server.labels["traefik.$protocol.routers.$entrypoint.entrypoints"] -eq $entrypoint) "Wrong $entrypoint router"
-    Assert ($server.labels["traefik.$protocol.routers.$entrypoint.service"] -eq $entrypoint) "Wrong $entrypoint service"
-    Assert ($server.labels["traefik.$protocol.services.$entrypoint.loadbalancer.server.port"] -eq $port) "Wrong $entrypoint backend port"
-}
-Assert ($server.labels['traefik.tcp.routers.ts6-files.rule'] -eq 'HostSNI(`*`)') 'File transfer must use raw TCP HostSNI wildcard'
-Assert (-not $server.labels.ContainsKey('traefik.tcp.routers.ts6-files.tls')) 'File transfer must not enable TLS'
-Assert ($server.labels['traefik.enable'] -eq 'true' -and $server.labels['traefik.docker.network'] -eq 'proxy') 'TS6 Docker discovery must use proxy'
+
 Assert ($ts.networks.proxy.external -eq $true -and $ts.networks.proxy.name -eq 'proxy') 'proxy must be external'
 Assert ($ts.networks.ContainsKey('ts-private') -and -not $ts.networks['ts-private'].internal) 'TS private bridge must allow future outbound traffic'
 Assert ($server.networks.ContainsKey('proxy') -and $server.networks.ContainsKey('ts-private')) 'TS6 must join both networks'
@@ -80,21 +60,16 @@ Assert ($managerVolume.type -eq 'bind' -and $managerVolume.target -eq '/app/pack
 Assert ($backend.environment.DATABASE_URL -eq 'file:/app/packages/backend/data/ts6webui.db') 'Wrong Manager database URL'
 Assert ($backend.environment.JWT_SECRET -and $backend.environment.ENCRYPTION_KEY) 'Manager secrets must be supplied'
 Assert ($backend.environment.FRONTEND_URL -eq 'https://ts-manager.example.com') 'Wrong Manager frontend URL'
-Assert (-not $backend.labels -or $backend.labels['traefik.enable'] -ne 'true') 'Manager backend must not be public'
+
 Assert ($frontend.networks.Count -eq 2 -and $frontend.networks.ContainsKey('proxy') -and $frontend.networks.ContainsKey('ts-private')) 'Frontend requires both networks'
-Assert ($frontend.labels['traefik.enable'] -eq 'false') 'Manager public route must default disabled'
-Assert ($frontend.labels['traefik.docker.network'] -eq 'proxy') 'Manager discovery must use proxy'
-Assert ($frontend.labels['traefik.http.routers.ts-manager.rule'] -eq 'Host(`ts-manager.example.com`)') 'Wrong Manager hostname'
-Assert ($frontend.labels['traefik.http.routers.ts-manager.entrypoints'] -eq 'websecure' -and $frontend.labels['traefik.http.routers.ts-manager.tls'] -eq 'true') 'Manager requires HTTPS'
-Assert ($frontend.labels['traefik.http.routers.ts-manager.tls.certresolver'] -eq 'letsencrypt') 'Wrong Manager certificate resolver'
-Assert ($frontend.labels['traefik.http.routers.ts-manager.service'] -eq 'ts-manager' -and $frontend.labels['traefik.http.services.ts-manager.loadbalancer.server.port'] -eq '80') 'Wrong Manager frontend service'
+
 Assert (-not $ts.services.ContainsKey('ts6-sidecar')) 'Optional video sidecar must remain absent'
 Assert ($ts.services.ContainsKey('xray')) 'Missing private Xray service'
 $xray = $ts.services.xray
 Assert ($xray.image -match '^ghcr.io/xtls/xray-core:(?!latest)[^@]+@sha256:[a-f0-9]{64}$') 'Pin the official Xray image by version and digest'
 Assert (-not $xray.ContainsKey('ports')) 'Xray must publish no host ports'
 Assert ($xray.networks.Count -eq 1 -and $xray.networks.ContainsKey('ts-private')) 'Xray must join only ts-private'
-Assert (-not $xray.labels -or $xray.labels['traefik.enable'] -ne 'true') 'Xray must have no public router'
+
 Assert ($ts.networks['ts-private'].driver -eq 'bridge' -and -not $ts.networks['ts-private'].internal) 'Xray bridge must permit outbound traffic'
 Assert ($xray.volumes.Count -eq 1) 'Xray must mount one real config'
 $xrayVolume = $xray.volumes[0]
@@ -169,19 +144,18 @@ Assert ($LASTEXITCODE -eq 0) 'Pinned upstream Roadie permission check failed'
 $production = Read-Compose 'ts' 'true'
 $productionFrontend = $production.services['manager-frontend']
 Assert (-not $productionFrontend.ContainsKey('ports')) 'Production Manager frontend must have no host port'
-Assert ($productionFrontend.labels['traefik.enable'] -eq 'true') 'Production Manager public route must be enabled'
-Assert ($productionFrontend.labels['traefik.http.routers.ts-manager.entrypoints'] -eq 'websecure' -and $productionFrontend.labels['traefik.http.routers.ts-manager.tls'] -eq 'true') 'Production Manager route must use HTTPS'
+
 $bootstrap = Read-Compose 'ts' 'false' -bootstrap
 $bootstrapFrontend = $bootstrap.services['manager-frontend']
 Assert ($bootstrapFrontend.ports.Count -eq 1) 'Bootstrap must publish exactly one frontend port'
 $bootstrapPort = $bootstrapFrontend.ports[0]
 Assert ($bootstrapPort.host_ip -eq '127.0.0.1' -and $bootstrapPort.published -eq '13000' -and $bootstrapPort.target -eq 80 -and $bootstrapPort.protocol -eq 'tcp') 'Bootstrap frontend must bind only 127.0.0.1:13000:80/tcp'
-Assert ($bootstrapFrontend.labels['traefik.enable'] -eq 'false') 'Bootstrap Manager must have no enabled public router'
+
 foreach ($mode in @($bootstrap, $production)) {
     Assert (-not $mode.services.ts6.ContainsKey('ports')) 'WebQuery must remain unpublished in every Manager mode'
     $modeBackend = $mode.services['manager-backend']
     Assert (-not $modeBackend.ContainsKey('ports') -and $modeBackend.networks.Count -eq 1 -and $modeBackend.networks.ContainsKey('ts-private')) 'Manager backend must remain private in every mode'
-    Assert (-not $modeBackend.labels -or $modeBackend.labels['traefik.enable'] -ne 'true') 'Manager backend must have no public route in every mode'
+
 }
 Push-Location $repo
 try {

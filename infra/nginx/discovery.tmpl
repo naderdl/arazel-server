@@ -1,0 +1,52 @@
+{{- /* docker-gen owns Docker metadata access. This template emits only validated data. */ -}}
+{{- $environment := env "INGRESS_ENVIRONMENT" -}}
+{{- if and (ne $environment "") (ne $environment "production") (ne $environment "lab") }}{{ fail "INGRESS_ENVIRONMENT must be production or lab" }}{{ end -}}
+{{- $prefix := env "INGRESS_LAB_NETWORK_PREFIX" -}}
+{{- if eq $environment "lab" }}{{ if not (mustRegexMatch "^[a-z0-9][a-z0-9-]{0,40}-$" $prefix) }}{{ fail "INGRESS_LAB_NETWORK_PREFIX must be a safe trailing-dash prefix in lab" }}{{ end }}{{ else if ne $prefix "" }}{{ fail "INGRESS_LAB_NETWORK_PREFIX is lab-only" }}{{ end -}}
+{{- $proxyPhysical := "proxy" -}}{{- $tsPhysical := "ingress-ts6" -}}{{- $valheimPhysical := "ingress-valheim" -}}
+{{- if eq $environment "lab" }}{{ $proxyPhysical = printf "%sproxy" $prefix }}{{ $tsPhysical = printf "%singress-ts6" $prefix }}{{ $valheimPhysical = printf "%singress-valheim" $prefix }}{{ end -}}
+{{- $hosts := dict -}}{{- $udp := dict -}}{{- $tcp := dict -}}{{- $routes := list -}}
+{{ printf "# ingress-discovery: v1\n" }}
+{{- range $container := . -}}
+  {{- $project := index $container.Labels "com.docker.compose.project" -}}
+  {{- $enabled := index $container.Labels "ingress.enabled" -}}
+  {{- if and (or (eq $project "infra") (eq $project "ts") (eq $project "valheim")) (or (ne $environment "lab") (hasPrefix $prefix $container.Name)) -}}
+    {{- if and (ne $enabled "") (ne $enabled "true") (ne $enabled "false") }}{{ fail (printf "container %s has invalid ingress.enabled" $container.Name) }}{{ end -}}
+    {{- if and $container.State.Running (eq $enabled "true") -}}
+      {{- range $key, $value := $container.Labels -}}
+        {{- if and (hasPrefix "ingress." $key) (ne $key "ingress.enabled") (ne $key "ingress.http.network") (ne $key "ingress.http.host") (ne $key "ingress.http.port") (ne $key "ingress.http.auth") (ne $key "ingress.stream.network") (ne $key "ingress.stream.udp") (ne $key "ingress.stream.tcp") }}{{ fail (printf "container %s has unsupported ingress label %s" $container.Name $key) }}{{ end -}}
+      {{- end -}}
+      {{- $httpNetwork := index $container.Labels "ingress.http.network" -}}{{- $httpHost := index $container.Labels "ingress.http.host" -}}{{- $httpPort := index $container.Labels "ingress.http.port" -}}{{- $auth := index $container.Labels "ingress.http.auth" -}}
+      {{- $hasHTTP := or (ne $httpNetwork "") (ne $httpHost "") (ne $httpPort "") -}}
+      {{- if $hasHTTP -}}
+        {{- if or (eq $httpNetwork "") (eq $httpHost "") (eq $httpPort "") }}{{ fail (printf "container %s must provide ingress.http.network, host, and port together" $container.Name) }}{{ end -}}
+        {{- if ne $httpNetwork "proxy" }}{{ fail (printf "container %s must use logical proxy HTTP network" $container.Name) }}{{ end -}}
+        {{- $host := lower $httpHost -}}{{- if or (mustRegexMatch "^[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+$" $host) (not (mustRegexMatch "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?([.][a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$" $host)) }}{{ fail (printf "container %s has invalid ingress.http.host" $container.Name) }}{{ end -}}
+        {{- if gt (len $host) 253 }}{{ fail (printf "container %s hostname is too long" $container.Name) }}{{ end -}}
+        {{- if not (mustRegexMatch "^[1-9][0-9]{0,4}$" $httpPort) }}{{ fail (printf "container %s has invalid ingress.http.port" $container.Name) }}{{ end -}}
+        {{- if gt (atoi $httpPort) 65535 }}{{ fail (printf "container %s HTTP port is out of range" $container.Name) }}{{ end -}}
+        {{- if eq $auth "" }}{{ $auth = "none" }}{{ end -}}{{- if and (ne $auth "none") (ne $auth "huginn") }}{{ fail (printf "container %s has invalid ingress.http.auth" $container.Name) }}{{ end -}}
+        {{- if hasKey $hosts $host }}{{ fail (printf "duplicate HTTP hostname %s" $host) }}{{ end -}}{{- $_ := set $hosts $host $container.ID -}}
+        {{- $networks := where $container.Networks "Name" $proxyPhysical -}}{{- if ne (len $networks) 1 }}{{ fail (printf "container %s has no unique selected proxy network" $container.Name) }}{{ end -}}{{- $network := index $networks 0 -}}{{- if not (mustRegexMatch "^[0-9]{1,3}(\\.[0-9]{1,3}){3}$" $network.IP) }}{{ fail (printf "container %s has no IPv4 address on selected proxy network" $container.Name) }}{{ end -}}
+        {{- $routes = append $routes (printf "http|%s|%s|%s|%s" $host $network.IP $httpPort $auth) -}}
+      {{- else if ne $auth "" }}{{ fail (printf "container %s sets HTTP auth without a complete HTTP route" $container.Name) }}{{ end -}}
+      {{- $streamNetwork := index $container.Labels "ingress.stream.network" -}}{{- $streamUDP := index $container.Labels "ingress.stream.udp" -}}{{- $streamTCP := index $container.Labels "ingress.stream.tcp" -}}
+      {{- if or (ne $streamUDP "") (ne $streamTCP "") -}}
+        {{- if eq $streamNetwork "" }}{{ fail (printf "container %s stream ports require ingress.stream.network" $container.Name) }}{{ end -}}
+        {{- $physical := "" -}}{{- if eq $streamNetwork "ingress-ts6" }}{{ $physical = $tsPhysical }}{{ else if eq $streamNetwork "ingress-valheim" }}{{ $physical = $valheimPhysical }}{{ else }}{{ fail (printf "container %s has an unsupported logical stream network" $container.Name) }}{{ end -}}
+        {{- if and (eq $project "ts") (ne $streamNetwork "ingress-ts6") }}{{ fail "TS stream routes must use ingress-ts6" }}{{ end -}}{{- if and (eq $project "valheim") (ne $streamNetwork "ingress-valheim") }}{{ fail "Valheim stream routes must use ingress-valheim" }}{{ end -}}{{- if eq $project "infra" }}{{ fail "infra containers may not declare stream routes" }}{{ end -}}
+        {{- $networks := where $container.Networks "Name" $physical -}}{{- if ne (len $networks) 1 }}{{ fail (printf "container %s has no unique selected stream network" $container.Name) }}{{ end -}}{{- $network := index $networks 0 -}}{{- if not (mustRegexMatch "^[0-9]{1,3}(\\.[0-9]{1,3}){3}$" $network.IP) }}{{ fail (printf "container %s has no IPv4 address on selected stream network" $container.Name) }}{{ end -}}
+        {{- if and (ne $streamUDP "") (or (hasPrefix "," $streamUDP) (hasSuffix "," $streamUDP) (contains ",," $streamUDP)) }}{{ fail (printf "container %s has an empty UDP pair" $container.Name) }}{{ end -}}{{- if ne $streamUDP "" }}{{- range $pair := splitList "," $streamUDP }}{{- if not (mustRegexMatch "^[1-9][0-9]{0,4}:[1-9][0-9]{0,4}$" $pair) }}{{ fail (printf "container %s has invalid UDP pair" $container.Name) }}{{ end -}}{{- $parts := splitList ":" $pair }}{{- $listen := index $parts 0 }}{{- $backend := index $parts 1 }}{{- if or (gt (atoi $listen) 65535) (gt (atoi $backend) 65535) (and (eq $streamNetwork "ingress-ts6") (ne $listen "9987")) (and (eq $streamNetwork "ingress-ts6") (ne $backend "9987")) (and (eq $streamNetwork "ingress-valheim") (ne $listen "2456") (ne $listen "2457") (ne $listen "2458")) (and (eq $streamNetwork "ingress-valheim") (ne $backend "2456") (ne $backend "2457") (ne $backend "2458")) (ne $listen $backend) }}{{ fail (printf "container %s has an unsupported UDP tuple" $container.Name) }}{{ end -}}{{- if hasKey $udp $listen }}{{ fail (printf "duplicate UDP listener %s" $listen) }}{{ end -}}{{- $_ := set $udp $listen $container.ID -}}{{- $routes = append $routes (printf "udp|%s|%s|%s" $listen $network.IP $backend) -}}{{- end -}}{{- end -}}
+        {{- if and (ne $streamTCP "") (or (hasPrefix "," $streamTCP) (hasSuffix "," $streamTCP) (contains ",," $streamTCP)) }}{{ fail (printf "container %s has an empty TCP pair" $container.Name) }}{{ end -}}{{- if ne $streamTCP "" }}{{- range $pair := splitList "," $streamTCP }}{{- if not (mustRegexMatch "^[1-9][0-9]{0,4}:[1-9][0-9]{0,4}$" $pair) }}{{ fail (printf "container %s has invalid TCP pair" $container.Name) }}{{ end -}}{{- $parts := splitList ":" $pair }}{{- $listen := index $parts 0 }}{{- $backend := index $parts 1 }}{{- if or (ne $streamNetwork "ingress-ts6") (gt (atoi $listen) 65535) (gt (atoi $backend) 65535) (ne $listen "30033") (ne $backend "30033") }}{{ fail (printf "container %s has an unsupported TCP tuple" $container.Name) }}{{ end -}}{{- if hasKey $tcp $listen }}{{ fail (printf "duplicate TCP listener %s" $listen) }}{{ end -}}{{- $_ := set $tcp $listen $container.ID -}}{{- $routes = append $routes (printf "tcp|%s|%s|%s" $listen $network.IP $backend) -}}{{- end -}}{{- end -}}
+      {{- else if ne $streamNetwork "" }}{{ fail (printf "container %s sets stream network without ports" $container.Name) }}{{ end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- range $route := sortAlpha $routes -}}
+{{- $parts := splitList "|" $route -}}
+{{- if eq (index $parts 0) "http" -}}
+{{ printf "# ingress-certificate: %s\n# ingress-http: %s|%s|%s|%s\n" (index $parts 1) (index $parts 1) (index $parts 2) (index $parts 3) (index $parts 4) }}
+{{- else -}}
+{{ printf "# ingress-stream: %s\n" $route }}
+{{- end -}}
+{{- end -}}
