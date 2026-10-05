@@ -106,7 +106,7 @@ Streams use `ingress.stream.network` and comma-separated `ingress.stream.udp` / 
 
 ## Certificate ownership and repair
 
-Certbot alone writes `/etc/letsencrypt` and the challenge webroot. Preserve its **entire** tree, including accounts, renewal metadata, archive files and live symlinks. Ingress/controller mount it read-only. The selected validated root's sorted `# ingress-certificate:` records are the sole issuance inventory; disabling a hostname stops future scheduling after its removal is activated, without deleting its old lineage.
+Certbot alone writes `/etc/letsencrypt` and the challenge webroot. Its read-only mounted wrapper is invoked through `/bin/sh`, so checkout executable bits are not required. Preserve its **entire** tree, including accounts, renewal metadata, archive files and live symlinks. Ingress/controller mount it read-only. The selected validated root's sorted `# ingress-certificate:` records are the sole issuance inventory; disabling a hostname stops future scheduling after its removal is activated, without deleting its old lineage.
 
 Inventory polling is **30 seconds**, normal per-host renewal checks **12 hours**, failed-host retries **5 minutes**. Each invocation is bounded to **900 seconds**, including termination escalation. Timing/forced-renewal overrides are lab-only. One host's failure does not starve the others. Missing lineages use `certonly`; existing ones use per-name `renew`. Saved CA-directory mismatches are rejected, not silently migrated.
 
