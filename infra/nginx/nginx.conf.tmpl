@@ -1,0 +1,26 @@
+user nginx;
+worker_processes auto;
+pid /var/run/nginx.pid;
+error_log /dev/stderr notice;
+error_log /run/nginx-runtime/nginx-notice.log notice;
+worker_shutdown_timeout 30s;
+
+events { worker_connections 1024; }
+
+http {
+    map $http_upgrade $connection_upgrade { default upgrade; '' close; }
+    server {
+        listen 80 default_server;
+        server_name _;
+        location ^~ /.well-known/acme-challenge/ { root /var/www/certbot; default_type text/plain; try_files $uri =404; auth_basic off; }
+        location / { return 400; }
+    }
+    __INGRESS_RECORDS__
+    __HTTP_SERVERS__
+    __HTTPS_SERVERS__
+    server { listen 443 ssl default_server; server_name _; ssl_reject_handshake on; }
+}
+
+stream {
+    __STREAM_SERVERS__
+}

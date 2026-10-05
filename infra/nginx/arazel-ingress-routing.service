@@ -1,0 +1,26 @@
+[Unit]
+Description=Arazel scoped transparent-ingress routing
+Requires=docker.service
+After=docker.service
+PartOf=docker.service
+
+[Service]
+Type=simple
+User=root
+RuntimeDirectory=arazel-ingress
+RuntimeDirectoryMode=0700
+ExecStart=/usr/local/sbin/arazel-transparent-routing serve-readiness
+ExecStop=/usr/local/sbin/arazel-transparent-routing remove
+KillSignal=SIGTERM
+TimeoutStopSec=15s
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadWritePaths=/run/arazel-ingress
+
+[Install]
+WantedBy=docker.service

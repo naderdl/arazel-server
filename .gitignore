@@ -6,6 +6,7 @@
 /infra/caddy/
 /infra/traefik/usersfile
 /infra/traefik/letsencrypt/
+/infra/nginx/usersfile
 /ts/data/
 /ts/xray/config.json
 /ts/xray/config.candidate.json

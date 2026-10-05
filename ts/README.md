@@ -15,6 +15,23 @@ TS6 keeps the player password and server groups in `data/ts6`, not in Compose. O
 2. Set the virtual server password in **Edit Virtual Server**. Share it with players privately; keep it out of Git and Roadie configs.
 3. Restart one Roadie and check it rejoins without a password. Test a new ordinary identity: it must need the password. The group, password, and Roadie identities persist in `data/ts6` and `data/roadie-djN`.
 
-Only Traefik publishes host ports. `data/`, `.env`, and `xray/config.json` stay outside Git. Check locally with `pwsh -File scripts/test-ts6-config.ps1`.
+NGINX is the only public listener. Complete [infra host policy/network preparation](../infra/README.md) before starting TS6: its dedicated `ingress-ts6` connection has the higher gateway priority, while `ts-private` keeps `ts6.docker` for Manager/Roadies and monitoring stays private. Existing container gateway changes require recreation, not a label-only restart. `data/`, `.env`, and `xray/config.json` stay outside Git. Check locally with `pwsh -NoProfile -File scripts/test-ts6-config.ps1`.
 
 Monitoring: Alloy collects logs and container metrics for every TS service, and scrapes TS6's private `:9187/metrics` endpoint. The Xray refresh service writes to the host journal, which Alloy sends to LGTM. Per-packet voice metrics remain off to avoid extra work on the voice path.
+
+## Private Manager bootstrap
+
+With `TS_MANAGER_PUBLIC=false`, no public Manager route/certificate is requested after the controller reconciles its labels. Keep the backend API on `ts-private`; never publish 3001 or TS6 Query/SSH Query/metrics ports. Use the explicit loopback override until the admin and private WebQuery connection are configured:
+
+```sh
+docker compose --env-file ts/.env -f ts/compose.yml -f ts/bootstrap.yml up -d ts6 manager-backend manager-frontend
+ssh -L 127.0.0.1:13000:127.0.0.1:13000 your-server
+```
+
+Open `http://127.0.0.1:13000` locally. After setup, set `TS_MANAGER_PUBLIC=true` in the private env file and recreate the frontend **without** the bootstrap override:
+
+```sh
+docker compose --env-file ts/.env -f ts/compose.yml up -d --force-recreate manager-frontend
+```
+
+Its validated `ingress.http.*` labels then add the hostname to Certbot's inventory, subject to the infra CA consent gate. Disabling it stops future scheduling after removal is activated; old certificates are retained. Native Manager authentication is not replaced by Huginn Basic auth. See [cutover and operator gameplay checks](../docs/MIGRATION.md) for expected downtime and external validation.

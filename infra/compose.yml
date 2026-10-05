@@ -1,116 +1,138 @@
 name: infra
 
 services:
-
-  traefik:
-    image: traefik:v3.7.13
+  nginx:
+    image: arazel-nginx:local
+    build:
+      context: ./nginx
     restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_RAW
+    volumes:
+      - certbot_state:/etc/letsencrypt:ro
+      - certbot_webroot:/var/www/certbot:ro
+      - ingress_config:/run/nginx-config:ro
+      - ingress_selected:/run/nginx-selected:ro
+      - ingress_runtime:/run/nginx-runtime
+      - ./nginx/usersfile:/etc/nginx/usersfile:ro
+      - /run/arazel-ingress:/run/arazel-ingress:ro
 
-    ports:
-      - "80:80/tcp"
-      - "443:443/tcp"
-      - "2456:2456/udp"
-      - "2457:2457/udp"
-      - "2458:2458/udp"
-      - "9987:9987/udp"
-      - "30033:30033/tcp"
+  controller:
+    image: arazel-nginx:local
+    restart: unless-stopped
+    depends_on:
+      socket-proxy:
+        condition: service_started
+      nginx:
+        condition: service_started
+    pid: service:nginx
+    entrypoint: ["/usr/local/sbin/controller.sh"]
+    command: ["run"]
+    environment:
+      DOCKER_HOST: tcp://socket-proxy:2375
+      INGRESS_ENVIRONMENT: ${INGRESS_ENVIRONMENT:-production}
+      INGRESS_LAB_NETWORK_PREFIX: ${INGRESS_LAB_NETWORK_PREFIX:-}
+      NGINX_MASTER_RUNTIME: /run/nginx-master-runtime
+      ACME_ENVIRONMENT: ${ACME_ENVIRONMENT:-production}
+      ACME_DIRECTORY: ${ACME_DIRECTORY:-https://acme-v02.api.letsencrypt.org/directory}
+    volumes:
+      - certbot_state:/etc/letsencrypt:ro
+      - certbot_webroot:/var/www/certbot:ro
+      - ingress_config:/run/nginx-config
+      - ingress_selected:/run/nginx-selected
+      - ingress_runtime:/run/nginx-master-runtime:ro
+      - ./nginx/usersfile:/etc/nginx/usersfile:ro
+      - /run/arazel-ingress:/run/arazel-ingress:ro
+    networks:
+      - ingress-control
 
-    command:
-      - --entrypoints.web.address=:80
-      - --entrypoints.web.http.redirections.entrypoint.to=websecure
-      - --entrypoints.web.http.redirections.entrypoint.scheme=https
-      - --entrypoints.websecure.address=:443
-      - --entrypoints.valheim-2456.address=:2456/udp
-      - --entrypoints.valheim-2457.address=:2457/udp
-      - --entrypoints.valheim-2458.address=:2458/udp
-      - --entrypoints.ts6-voice.address=:9987/udp
-      - --entrypoints.ts6-files.address=:30033
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --providers.docker.network=proxy
-      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}
-      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
-      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
-
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik/usersfile:/etc/traefik/usersfile:ro
-      - traefik_letsencrypt:/letsencrypt
+      - ./nginx/docker-socket-proxy.cfg:/usr/local/etc/haproxy/haproxy.cfg.template:ro
+    networks:
+      - ingress-control
 
+  certbot:
+    image: certbot/certbot:v5.8.0@sha256:f70ad0adbb7e117f0fe42a63c553f28ea451edabc0148757b6efcd9735acaa20
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/opt/ingress/certificates.sh"]
+    command: ["run"]
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in infra/.env}
+      ACME_ENVIRONMENT: ${ACME_ENVIRONMENT:-production}
+      ACME_DIRECTORY: ${ACME_DIRECTORY:-https://acme-v02.api.letsencrypt.org/directory}
+      ACME_TERMS_DIRECTORY: ${ACME_TERMS_DIRECTORY:?Set ACME_TERMS_DIRECTORY to the selected directory in infra/.env}
+      ACME_ACCEPT_TERMS: ${ACME_ACCEPT_TERMS:-false}
+    volumes:
+      - certbot_state:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+      - ingress_selected:/run/nginx-selected:ro
+      - ./nginx/certificates.sh:/opt/ingress/certificates.sh:ro
     networks:
       - proxy
-
 
   lgtm:
     image: grafana/otel-lgtm:0.30.0
     restart: unless-stopped
-
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
-
       GF_SECURITY_ADMIN_USER: "admin"
       GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD}"
-
       GF_SERVER_DOMAIN: "${GRAFANA_DOMAIN:?Set GRAFANA_DOMAIN in infra/.env}"
       GF_SERVER_ROOT_URL: "https://${GRAFANA_DOMAIN:?Set GRAFANA_DOMAIN in infra/.env}"
-
       PROMETHEUS_EXTRA_ARGS: "--storage.tsdb.retention.time=14d"
-
     volumes:
       - lgtm_data:/data
-
     labels:
-      traefik.enable: "true"
-      traefik.docker.network: proxy
-      traefik.http.routers.grafana.rule: "Host(`${GRAFANA_DOMAIN:?Set GRAFANA_DOMAIN in infra/.env}`)"
-      traefik.http.routers.grafana.entrypoints: websecure
-      traefik.http.routers.grafana.tls: "true"
-      traefik.http.routers.grafana.tls.certresolver: letsencrypt
-      traefik.http.routers.grafana.service: grafana
-      traefik.http.services.grafana.loadbalancer.server.port: "3000"
-
+      ingress.enabled: "true"
+      ingress.http.network: proxy
+      ingress.http.host: "${GRAFANA_DOMAIN:?Set GRAFANA_DOMAIN in infra/.env}"
+      ingress.http.port: "3000"
+      ingress.http.auth: none
     networks:
       - proxy
       - monitoring
-
 
   alloy:
     image: grafana/alloy:latest
     restart: unless-stopped
     privileged: true
-
     command:
       - run
       - --server.http.listen-addr=0.0.0.0:12345
       - --storage.path=/var/lib/alloy/data
       - /etc/alloy/config.alloy
-
     volumes:
       - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
       - alloy_data:/var/lib/alloy/data
-
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/rootfs:ro
-
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/lib/docker:/var/lib/docker:ro
       - /dev/disk:/dev/disk:ro
-
     networks:
       - monitoring
-
 
 networks:
   proxy:
     external: true
-
   monitoring:
     external: true
-
+  ingress-control:
+    internal: true
 
 volumes:
-  traefik_letsencrypt:
+  certbot_state:
+    name: infra_certbot_${ACME_ENVIRONMENT:-production}
+  certbot_webroot:
+  ingress_config:
+  ingress_selected:
+  ingress_runtime:
   lgtm_data:
   alloy_data:

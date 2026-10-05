@@ -15,21 +15,18 @@ services:
     volumes:
       - ./data/ts6:/var/tsserver
     labels:
-      traefik.enable: "true"
-      traefik.docker.network: proxy
-      traefik.udp.routers.ts6-voice.entrypoints: ts6-voice
-      traefik.udp.routers.ts6-voice.service: ts6-voice
-      traefik.udp.services.ts6-voice.loadbalancer.server.port: "9987"
-      traefik.tcp.routers.ts6-files.rule: "HostSNI(`*`)"
-      traefik.tcp.routers.ts6-files.entrypoints: ts6-files
-      traefik.tcp.routers.ts6-files.service: ts6-files
-      traefik.tcp.services.ts6-files.loadbalancer.server.port: "30033"
+      ingress.enabled: "true"
+      ingress.stream.network: ingress-ts6
+      ingress.stream.udp: "9987:9987"
+      ingress.stream.tcp: "30033:30033"
     networks:
       proxy: {}
       ts-private:
         aliases:
           - ts6.docker
       monitoring: {}
+      ingress-ts6:
+        gw_priority: 100
 
   manager-backend:
     image: clusterzx/ts6-manager:backend@sha256:632cdbb3100496374936192c5575e72e2783d385561820e7baac426e2f8009da
@@ -52,14 +49,10 @@ services:
     depends_on:
       - manager-backend
     labels:
-      traefik.enable: "${TS_MANAGER_PUBLIC:-false}"
-      traefik.docker.network: proxy
-      traefik.http.routers.ts-manager.rule: "Host(`${TS_MANAGER_DOMAIN:?Set TS_MANAGER_DOMAIN in ts/.env}`)"
-      traefik.http.routers.ts-manager.entrypoints: websecure
-      traefik.http.routers.ts-manager.tls: "true"
-      traefik.http.routers.ts-manager.tls.certresolver: letsencrypt
-      traefik.http.routers.ts-manager.service: ts-manager
-      traefik.http.services.ts-manager.loadbalancer.server.port: "80"
+      ingress.enabled: "${TS_MANAGER_PUBLIC:-false}"
+      ingress.http.network: proxy
+      ingress.http.host: "${TS_MANAGER_DOMAIN:?Set TS_MANAGER_DOMAIN in ts/.env}"
+      ingress.http.port: "80"
     networks:
       - proxy
       - ts-private
@@ -123,3 +116,5 @@ networks:
     external: true
   ts-private:
     driver: bridge
+  ingress-ts6:
+    external: true

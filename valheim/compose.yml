@@ -56,29 +56,19 @@ services:
       - ./backups:/home/steam/backups
 
     networks:
-      - proxy
-      - monitoring
+      proxy: {}
+      monitoring: {}
+      ingress-valheim:
+        gw_priority: 100
 
     labels:
-      traefik.enable: "true"
-      traefik.docker.network: proxy
-      traefik.http.routers.valheim-huginn.rule: "Host(`${VALHEIM_DOMAIN:?Set VALHEIM_DOMAIN in valheim/.env}`)"
-      traefik.http.routers.valheim-huginn.entrypoints: websecure
-      traefik.http.routers.valheim-huginn.tls: "true"
-      traefik.http.routers.valheim-huginn.tls.certresolver: letsencrypt
-      traefik.http.routers.valheim-huginn.middlewares: valheim-huginn-auth
-      traefik.http.routers.valheim-huginn.service: valheim-huginn
-      traefik.http.services.valheim-huginn.loadbalancer.server.port: "3000"
-      traefik.http.middlewares.valheim-huginn-auth.basicauth.usersfile: /etc/traefik/usersfile
-      traefik.udp.routers.valheim-2456.entrypoints: valheim-2456
-      traefik.udp.routers.valheim-2456.service: valheim-2456
-      traefik.udp.services.valheim-2456.loadbalancer.server.port: "2456"
-      traefik.udp.routers.valheim-2457.entrypoints: valheim-2457
-      traefik.udp.routers.valheim-2457.service: valheim-2457
-      traefik.udp.services.valheim-2457.loadbalancer.server.port: "2457"
-      traefik.udp.routers.valheim-2458.entrypoints: valheim-2458
-      traefik.udp.routers.valheim-2458.service: valheim-2458
-      traefik.udp.services.valheim-2458.loadbalancer.server.port: "2458"
+      ingress.enabled: "true"
+      ingress.http.network: proxy
+      ingress.http.host: "${VALHEIM_DOMAIN:?Set VALHEIM_DOMAIN in valheim/.env}"
+      ingress.http.port: "3000"
+      ingress.http.auth: huginn
+      ingress.stream.network: ingress-valheim
+      ingress.stream.udp: "2456:2456,2457:2457,2458:2458"
       observability.scrape: "true"
       observability.metrics.port: "3000"
       observability.metrics.path: "/metrics"
@@ -92,4 +82,7 @@ networks:
     external: true
 
   monitoring:
+    external: true
+
+  ingress-valheim:
     external: true
