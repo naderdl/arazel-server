@@ -38,13 +38,13 @@ Its validated `ingress.http.*` labels then add the hostname to Certbot's invento
 
 ## FateMaker dice bot
 
-The `fatemaker` service runs the upstream [teamspeak-fatemakerbot](https://github.com/ThunderRonin/teamspeak-fatemakerbot) as a normal TeamSpeak user, using the locally loaded image `fatemaker:voice`. The Node.js bridge uses `@honeybbq/teamspeak@1.0.0-beta.30` and starts a persistent Python dice/initiative worker. Transfer/build updated images explicitly; this stack does not auto-update the bot.
+The `fatemaker` service runs the upstream [teamspeak-fatemakerbot](https://github.com/ThunderRonin/teamspeak-fatemakerbot) as a normal TeamSpeak user, using the locally loaded image `fatemaker:vc-shorthand`. The Node.js bridge uses `@honeybbq/teamspeak@1.0.0-beta.30` and starts a persistent Python dice/initiative worker. Transfer/build updated images explicitly; this stack does not auto-update the bot.
 
 The bot connects to `ts6.docker:9987` over the private Docker network, not ServerQuery. Its root-readable configuration is in ignored `data/fatemaker.env`. The regular `FateMaker` server group grants text/inspection permissions and bot-only flood exemption, not Server Admin or GM privileges. SSH query remains private for administration; do not publish port 10022.
 
 Both `data/fatemaker/identity.json` (mode 0600) and `data/fatemaker/state.json` persist in the existing bind mount, owned by UID/GID `10001:10001`. **Back up the identity**: it is the bot's normal-user account and preserves its group assignments across restarts.
 
-The public dice channel is Hallucinators (ID 9). Private rolls work throughout the server. Only members of the regular `GM` server group can advance, remove, or clear initiative. That group was created empty: assign the intended game masters in TeamSpeak.
+The public dice channel is **VC (ID 12), under Hallucinators (ID 9)**. Private rolls work throughout the server. Only members of the regular `GM` server group can advance, remove, or clear initiative. Assign the intended game masters in TeamSpeak; the GM group's assignment and management requirements are 75, matching Server Admin.
 
 From the repository root:
 

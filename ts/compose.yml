@@ -30,7 +30,7 @@ services:
         gw_priority: 100
 
   fatemaker:
-    image: fatemaker:voice
+    image: fatemaker:vc-shorthand
     restart: unless-stopped
     init: true
     env_file:
