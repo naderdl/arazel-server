@@ -35,3 +35,22 @@ docker compose --env-file ts/.env -f ts/compose.yml up -d --force-recreate manag
 ```
 
 Its validated `ingress.http.*` labels then add the hostname to Certbot's inventory, subject to the infra CA consent gate. Disabling it stops future scheduling after removal is activated; old certificates are retained. Native Manager authentication is not replaced by Huginn Basic auth. See [cutover and operator gameplay checks](../docs/MIGRATION.md) for expected downtime and external validation.
+
+## FateMaker dice bot
+
+The `fatemaker` service runs the upstream [teamspeak-fatemakerbot](https://github.com/ThunderRonin/teamspeak-fatemakerbot) as a normal TeamSpeak user, using the locally loaded image `fatemaker:voice`. The Node.js bridge uses `@honeybbq/teamspeak@1.0.0-beta.30` and starts a persistent Python dice/initiative worker. Transfer/build updated images explicitly; this stack does not auto-update the bot.
+
+The bot connects to `ts6.docker:9987` over the private Docker network, not ServerQuery. Its root-readable configuration is in ignored `data/fatemaker.env`. The regular `FateMaker` server group grants text/inspection permissions and bot-only flood exemption, not Server Admin or GM privileges. SSH query remains private for administration; do not publish port 10022.
+
+Both `data/fatemaker/identity.json` (mode 0600) and `data/fatemaker/state.json` persist in the existing bind mount, owned by UID/GID `10001:10001`. **Back up the identity**: it is the bot's normal-user account and preserves its group assignments across restarts.
+
+The public dice channel is Hallucinators (ID 9). Private rolls work throughout the server. Only members of the regular `GM` server group can advance, remove, or clear initiative. That group was created empty: assign the intended game masters in TeamSpeak.
+
+From the repository root:
+
+```sh
+docker compose --env-file ts/.env -f ts/compose.yml up -d --no-deps fatemaker
+docker compose --env-file ts/.env -f ts/compose.yml logs --tail 50 fatemaker
+```
+
+Native-client verification exercised private/channel rolls, Unicode initiative persistence, fresh GM membership/revocation, cross-channel private chat, and normal-user identity persistence across restarts. Replacing the dice bot does not require restarting TS6 or the Roadies. Do not apply `compose.local.yml` on this host: NGINX owns the voice/file-transfer listeners.

@@ -9,6 +9,7 @@ services:
       TSSERVER_QUERY_HTTP_ENABLED: "1"
       TSSERVER_QUERY_HTTP_PORT: "10080"
       TSSERVER_QUERY_HTTP_ALLOW_GUEST: "0"
+      TSSERVER_QUERY_SSH_ENABLED: "1"
       TSSERVER_QUERY_SSH_ALLOW_GUEST: "0"
       TSSERVER_METRICS_ENABLED: "1"
       TSSERVER_METRICS_IP: "0.0.0.0"
@@ -27,6 +28,30 @@ services:
       monitoring: {}
       ingress-ts6:
         gw_priority: 100
+
+  fatemaker:
+    image: fatemaker:voice
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ./data/fatemaker.env
+    environment:
+      DICEBOT_STATE_PATH: /data/state.json
+    volumes:
+      - type: bind
+        source: ./data/fatemaker
+        target: /data
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp:size=16M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - ts-private
 
   manager-backend:
     image: clusterzx/ts6-manager:backend@sha256:632cdbb3100496374936192c5575e72e2783d385561820e7baac426e2f8009da
